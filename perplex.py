@@ -4,6 +4,7 @@
 # Copyright (c) 2015 Konrad Rieck (konrad@mlsec.org)
 
 import argparse
+import datetime
 import gzip
 import json
 import os
@@ -14,7 +15,7 @@ import sys
 import progressbar as pb
 
 # Chars to remove from titles
-del_chars = '.[]()'
+del_chars = '.'
 
 def find_db(plex_dir, name):
     """ Search for database file in directory """
@@ -29,7 +30,7 @@ def find_db(plex_dir, name):
 def build_db(plex_dir, movies={}):
     """ Build movie database from sqlite database """
 
-    print "Analyzing Plex database:",
+    print ("Analyzing Plex database:")
     dbfile = find_db(plex_dir, "com.plexapp.plugins.library.db")
     db = sqlite3.connect(dbfile)
 
@@ -39,8 +40,8 @@ def build_db(plex_dir, movies={}):
         WHERE metadata_type = 1 AND originally_available_at """
 
     for row in db.execute(query):
-        title = filter(lambda x: x not in del_chars, row[1])
-        year = row[2].split('-')[0]
+        title = [x for x in row[1] if x not in del_chars]
+        year = datetime.date.fromtimestamp(row[2]).strftime("%Y")
         movies[row[0]] = (title, year, [])
 
     # Get files for each movie
@@ -55,7 +56,7 @@ def build_db(plex_dir, movies={}):
             files += 1
 
     db.close()
-    print "%d movies and %d files" % (len(movies), files)
+    print(("%d movies and %d files" % (len(movies), files)))
 
     return movies
 
@@ -63,7 +64,7 @@ def build_db(plex_dir, movies={}):
 def build_map(movies, dest, mapping=[]):
     """ Build mapping to new names """
 
-    for title, year, files in movies.values():
+    for title, year, files in list(movies.values()):
         for i, old_name in enumerate(files):
             _, ext = os.path.splitext(old_name)
 
@@ -75,7 +76,7 @@ def build_map(movies, dest, mapping=[]):
             new_name = os.path.join(dest, *template.split("/"))
             mapping.append((old_name, new_name))
 
-    mapping = filter(lambda (x,y): x.lower() != y.lower(), mapping)
+    mapping = [x_y for x_y in mapping if x_y[0].lower() != x_y[1].lower()]
     return mapping
 
 
@@ -97,12 +98,12 @@ def copy_rename(mapping, dest, dry):
 
             if not os.path.exists(fp):
                 if dry:
-                    print "%s\n    %s" % (old_name,fp)
+                    print(("%s\n    %s" % (old_name,fp)))
                 else:
                     shutil.copy(old_name, fp)
 
-        except Exception, e:
-            print str(e)
+        except Exception as e:
+            print((str(e)))
 
 
 if __name__ == "__main__":
@@ -124,20 +125,21 @@ if __name__ == "__main__":
     if args.plex:
         movies = build_db(args.plex)
     elif args.load:
-        print "Loading metadata from " + args.load
+        print(("Loading metadata from " + args.load))
         movies = json.load(gzip.open(args.load))
     else:
-        print "Error: Provide a Plex database or stored database."
+        print ("Error: Provide a Plex database or stored database.")
         sys.exit(-1)
 
     if args.save:
-        print "Saving metadata to " + args.save
-        json.dump(movies, gzip.open(args.save, 'w'))
+        print(("Saving metadata to " + args.save))
+        with gzip.open(args.save, 'wt', encoding='ascii') as file:
+            json.dump(movies, file)
 
 
     if args.dest:
-        print "Building file mapping for " + args.dest
+        print(("Building file mapping for " + args.dest))
         mapping = build_map(movies, args.dest)
-        print "Copying renamed files to " + args.dest
+        print(("Copying renamed files to " + args.dest))
         copy_rename(mapping, args.dest,args.dry)
 
